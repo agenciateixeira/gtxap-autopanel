@@ -1,0 +1,170 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #ffffff;
+  --foreground: #0f172a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0f172a;
+    --foreground: #ffffff;
+  }
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: Inter, system-ui, sans-serif;
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+/* Animações customizadas */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.6s ease-out forwards;
+}
+
+/* Estilo para botões com gradientes seguros */
+@layer components {
+  .btn-industrial {
+    @apply bg-gradient-to-r from-slate-700 to-slate-900 text-white px-6 py-3 rounded-lg font-semibold 
+           shadow-lg hover:shadow-xl transition-all duration-300 
+           border border-slate-600 hover:border-slate-500;
+  }
+
+  .btn-orange {
+    @apply bg-gradient-to-r from-orange-500 to-orange-600 text-white px-6 py-3 rounded-lg font-semibold 
+           shadow-lg hover:shadow-xl transition-all duration-300 
+           hover:scale-105 transform;
+  }
+
+  /* Efeitos de hover para cards */
+  .card-hover {
+    @apply transition-all duration-300 hover:shadow-2xl hover:-translate-y-2;
+  }
+}
+
+/* Scrollbar customizada para o chat */
+.scrollbar-thin {
+  scrollbar-width: thin;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: #374151;
+  border-radius: 10px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: #4b5563;
+  border-radius: 10px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: #6b7280;
+}
+
+/* Breakpoint personalizado para telas muito pequenas */
+@media (min-width: 475px) {
+  .xs\:inline {
+    display: inline;
+  }
+  
+  .xs\:hidden {
+    display: none;
+  }
+}
+
+/* Animação de entrada das mensagens */
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-slideIn {
+  animation: slideIn 0.3s ease-out;
+}
+
+/* Animação de pulsação para conexão */
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.33);
+  }
+  40%,
+  50% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.2);
+  }
+}
+
+/* Efeito de gradiente animado */
+.animate-gradient {
+  background-size: 200% 200%;
+  animation: gradientShift 3s ease infinite;
+}
+
+@keyframes gradientShift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* Responsividade melhorada para mensagens */
+.chat-message {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+
+/* Efeito hover sutil para mensagens */
+.message-hover:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+}
+
+/* Loading dots animation */
+@keyframes bounce {
+  0%, 20%, 53%, 80%, 100% {
+    transform: translate3d(0,0,0);
+  }
+  40%, 43% {
+    transform: translate3d(0, -8px, 0);
+  }
+  70% {
+    transform: translate3d(0, -4px, 0);
+  }
+  90% {
+    transform: translate3d(0, -2px, 0);
+  }
+}
