@@ -1,14 +1,10 @@
 {
-<<<<<<< HEAD
-  "name": "gtxapgit",
-=======
   "name": "gtxap",
->>>>>>> f3a0a146996ba8906cdb8809b44ecd8a8f442c3d
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build", 
     "start": "next start",
     "lint": "next lint"
   },
