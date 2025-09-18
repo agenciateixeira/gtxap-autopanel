@@ -1,14 +1,23 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  outputFileTracingRoot: process.cwd(),
-  eslint: {
-    ignoreDuringBuilds: true,
+  output: 'standalone', // Necessário para Docker/Cloud Run
+  experimental: {
+    outputFileTracingRoot: require('path').join(__dirname, './'),
   },
-  typescript: {
-    ignoreBuildErrors: true,
-  },
+  // Se usar imagens externas, configure os domínios
   images: {
-    domains: ['localhost'],
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: '**',
+      },
+    ],
+  },
+  // Configurações para APIs externas se necessário
+  async rewrites() {
+    return [
+      // Adicione rewrites se necessário
+    ];
   },
 }
 
