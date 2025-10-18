@@ -120,7 +120,7 @@ export async function POST(request: NextRequest) {
         .select('id, code, name, description, category, brand, unit, stock_quantity, min_stock, price, cost, supplier, location, status')
         .eq('user_id', userId)
         .or(searchQueries.join(','))
-        .limit(100) // Aumentado para 100 produtos mais relevantes
+        .limit(1000) // Aumentado para 1000 produtos
 
       // Filtrar apenas produtos ativos
       relevantProducts = (searchResults || []).filter((p: any) =>
@@ -137,7 +137,7 @@ export async function POST(request: NextRequest) {
         .select('id, code, name, description, category, brand, unit, stock_quantity, min_stock, price, cost, supplier, location, status')
         .eq('user_id', userId)
         .or('status.eq.active,status.eq.ativo,status.is.null')
-        .limit(20)
+        .limit(200)
 
       relevantProducts = sampleProducts || []
       console.log('📦 Usando amostra geral:', relevantProducts.length)
@@ -185,7 +185,7 @@ export async function POST(request: NextRequest) {
         .eq('user_id', userId)
         .or('status.eq.active,status.eq.ativo,status.is.null')
         .lte('stock_quantity', 10)
-        .limit(30)
+        .limit(100)
 
       relevantProducts = lowStock || []
     } else if (/orçamento|orcamento|cotação|cotacao|proposta|preciso|quero comprar/i.test(queryLower)) {
