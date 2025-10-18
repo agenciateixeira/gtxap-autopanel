@@ -33,6 +33,9 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# app.yaml with secrets (use app.yaml.example instead)
+app.yaml
+
 # vercel
 .vercel
 
