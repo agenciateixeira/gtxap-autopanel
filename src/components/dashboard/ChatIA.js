@@ -274,7 +274,7 @@ export default function ChatIA() {
     setInputMessage('')
     setIsLoading(true)
     setQuoteCreated(null)
-    setIsUserScrolling(false)
+    // Removido setIsUserScrolling(false) - deixar scroll acontecer naturalmente
 
     try {
       // Buscar usuário atual
@@ -381,6 +381,7 @@ export default function ChatIA() {
       }
 
       setMessages(prev => [...prev, assistantMessage])
+      setIsUserScrolling(false) // Permitir scroll automático após resposta da IA
 
       // Atualizar contexto da conversa
       if (data.context?.conversation_id) {
@@ -438,7 +439,7 @@ export default function ChatIA() {
         setTimeout(() => {
           if (inputRef.current && isMounted) {
             try {
-              inputRef.current.focus()
+              inputRef.current.focus({ preventScroll: true })
             } catch (focusError) {
               // Ignora erros de focus
             }
