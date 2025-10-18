@@ -23,14 +23,7 @@ import {
 } from 'lucide-react'
 
 export default function ChatIA() {
-  const [messages, setMessages] = useState([
-    {
-      id: `msg_${Date.now()}_0`,
-      role: 'assistant',
-      content: 'Olá! Sou o AutoPanel IA, seu assistente para orçamentos. Como posso ajudar você hoje?',
-      timestamp: new Date().toISOString()
-    }
-  ])
+  const [messages, setMessages] = useState([])
   const [inputMessage, setInputMessage] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [user, setUser] = useState(null)
@@ -186,13 +179,23 @@ export default function ChatIA() {
         setConversationId(conversation.conversation_id)
         setLastMessage(conversation.last_message || '')
         console.log('🔄 Conversa ativa encontrada:', conversation.conversation_id)
-        
+
         // Carregar mensagens da conversa
         await loadConversationMessages(conversation.conversation_id)
       } else {
         setConversationActive(false)
         setConversationId(null)
         setLastMessage('')
+
+        // Se não tem conversa ativa, adicionar mensagem de boas-vindas
+        if (isMounted) {
+          setMessages([{
+            id: `msg_${Date.now()}_welcome`,
+            role: 'assistant',
+            content: 'Olá! Sou o AutoPanel IA, seu assistente para orçamentos. Como posso ajudar você hoje?',
+            timestamp: new Date().toISOString()
+          }])
+        }
       }
     } catch (error) {
       console.error('Erro ao verificar conversa ativa:', error)
@@ -202,7 +205,7 @@ export default function ChatIA() {
   // 🆕 Carregar mensagens da conversa ativa
   const loadConversationMessages = useCallback(async (convId) => {
     if (!isMounted) return
-    
+
     try {
       const { data: chatMessages, error } = await supabase
         .from('chat_messages')
@@ -223,9 +226,24 @@ export default function ChatIA() {
 
         setMessages(formattedMessages)
         console.log('📜 Mensagens carregadas:', formattedMessages.length)
+      } else {
+        // Se não tem mensagens, adicionar mensagem de boas-vindas
+        setMessages([{
+          id: `msg_${Date.now()}_welcome`,
+          role: 'assistant',
+          content: 'Olá! Sou o AutoPanel IA, seu assistente para orçamentos. Como posso ajudar você hoje?',
+          timestamp: new Date().toISOString()
+        }])
       }
     } catch (error) {
       console.error('Erro ao carregar mensagens:', error)
+      // Em caso de erro, adicionar mensagem de boas-vindas
+      setMessages([{
+        id: `msg_${Date.now()}_welcome`,
+        role: 'assistant',
+        content: 'Olá! Sou o AutoPanel IA, seu assistente para orçamentos. Como posso ajudar você hoje?',
+        timestamp: new Date().toISOString()
+      }])
     }
   }, [isMounted])
 

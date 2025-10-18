@@ -789,7 +789,7 @@ export default function HomePage() {
               </p>
               <div className="flex items-center gap-2 text-sm text-gray-400">
                 <Award className="w-4 h-4 text-orange-400" />
-                Certificado ISO 27001 • Segurança Empresarial
+                Segurança Empresarial
               </div>
             </div>
             

@@ -192,7 +192,8 @@ function LoginForm() {
           name: formData.name,
           company: formData.company,
           cnpj: formData.cnpj,
-          phone: formData.phone
+          phone: formData.phone,
+          avatar_url: null 
         }
         
         const { data, error } = await auth.signUp(formData.email, formData.password, userData)

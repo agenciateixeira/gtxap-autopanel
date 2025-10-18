@@ -86,149 +86,234 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // 4. BUSCAR DADOS BÁSICOS DO USUÁRIO
+    // 4. BUSCAR PERFIL DO USUÁRIO
     console.log('👤 Buscando dados do usuário...')
-    
-    const [profileResult, productsResult] = await Promise.allSettled([
-      supabaseAdmin.from('profiles').select('*').eq('id', userId).single(),
-      supabaseAdmin.from('products')
-        .select('id, code, name, description, category, brand, unit, stock_quantity, min_stock, price, cost, supplier, location, status')
-        .eq('user_id', userId)
-        .limit(50) // Limitar para evitar timeout
-    ])
 
-    const userProfile = profileResult.status === 'fulfilled' ? profileResult.value.data : null
-    const allProducts = productsResult.status === 'fulfilled' ? (productsResult.value.data || []) : []
-    
-    // Filtrar produtos ativos - tipando explicitamente
-    const products: Product[] = allProducts.filter((p: any) => 
-      !p.status || p.status === 'active' || p.status === 'ativo'
-    )
-
-    console.log('📊 Dados carregados:', { 
-      profile: !!userProfile,
-      totalProducts: allProducts.length,
-      activeProducts: products.length
-    })
+    const { data: userProfile } = await supabaseAdmin
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .single()
 
     // 5. BUSCA INTELIGENTE DE PRODUTOS BASEADA NA MENSAGEM
     let relevantProducts: Product[] = []
     const queryLower = message.toLowerCase()
-    
-    // Detectar termos relevantes - com tipagem explícita
+
+    // Extrair termos de busca relevantes
     const searchTerms: string[] = queryLower
       .replace(/[^\w\sàáâãéêíóôõúç]/g, ' ')
       .split(/\s+/)
       .filter((term: string) => term.length > 2)
-    
+
     console.log('🔍 Termos de busca extraídos:', searchTerms)
 
+    // 6. BUSCA OTIMIZADA DIRETO NO BANCO (sem limit 50!)
     if (searchTerms.length > 0) {
-      // Buscar produtos que correspondem aos termos - com tipagem explícita
-      relevantProducts = products.filter((product: Product) => {
-        const productText = `${product.name} ${product.description || ''} ${product.category || ''} ${product.brand || ''} ${product.code || ''}`.toLowerCase()
-        
-        return searchTerms.some((term: string) => 
-          productText.includes(term) ||
-          term.includes(product.name?.toLowerCase() || '') ||
-          (product.code && product.code.toLowerCase().includes(term))
-        )
-      }).slice(0, 20) // Máximo 20 produtos relevantes
+      // Construir query com múltiplos termos de busca
+      const searchQueries = searchTerms.map(term =>
+        `name.ilike.%${term}%,description.ilike.%${term}%,code.ilike.%${term}%,category.ilike.%${term}%,brand.ilike.%${term}%`
+      )
+
+      // Buscar produtos relevantes usando OR
+      const { data: searchResults } = await supabaseAdmin
+        .from('products')
+        .select('id, code, name, description, category, brand, unit, stock_quantity, min_stock, price, cost, supplier, location, status')
+        .eq('user_id', userId)
+        .or(searchQueries.join(','))
+        .limit(100) // Aumentado para 100 produtos mais relevantes
+
+      // Filtrar apenas produtos ativos
+      relevantProducts = (searchResults || []).filter((p: any) =>
+        !p.status || p.status === 'active' || p.status === 'ativo'
+      )
+
+      console.log('🎯 Produtos encontrados na busca:', relevantProducts.length)
     }
 
-    // Se não encontrou produtos específicos, pegar uma amostra
+    // Se não encontrou produtos específicos, buscar amostra geral
     if (relevantProducts.length === 0) {
-      relevantProducts = products.slice(0, 10)
+      const { data: sampleProducts } = await supabaseAdmin
+        .from('products')
+        .select('id, code, name, description, category, brand, unit, stock_quantity, min_stock, price, cost, supplier, location, status')
+        .eq('user_id', userId)
+        .or('status.eq.active,status.eq.ativo,status.is.null')
+        .limit(20)
+
+      relevantProducts = sampleProducts || []
+      console.log('📦 Usando amostra geral:', relevantProducts.length)
     }
 
-    console.log('🎯 Produtos relevantes encontrados:', relevantProducts.length)
+    // 7. BUSCAR ESTATÍSTICAS GERAIS DO ESTOQUE
+    const { count: totalProducts } = await supabaseAdmin
+      .from('products')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .or('status.eq.active,status.eq.ativo,status.is.null')
 
-    // 6. CALCULAR ESTATÍSTICAS
+    const { data: lowStockProducts } = await supabaseAdmin
+      .from('products')
+      .select('stock_quantity, min_stock')
+      .eq('user_id', userId)
+      .or('status.eq.active,status.eq.ativo,status.is.null')
+      .lte('stock_quantity', 10)
+
+    const products: Product[] = relevantProducts
+
+    console.log('📊 Estatísticas:', {
+      totalProducts,
+      lowStock: lowStockProducts?.length || 0,
+      relevantFound: relevantProducts.length
+    })
+
+    // 8. CALCULAR ESTATÍSTICAS
     const stats = {
-      total: products.length,
-      lowStock: products.filter((p: Product) => (p.stock_quantity || 0) <= (p.min_stock || 0)).length,
+      total: totalProducts || 0,
+      lowStock: lowStockProducts?.length || 0,
       categories: [...new Set(products.map((p: Product) => p.category).filter(Boolean))],
       brands: [...new Set(products.map((p: Product) => p.brand).filter(Boolean))]
     }
 
-    // 7. DETECTAR TIPO DE CONSULTA
+    // 9. DETECTAR TIPO DE CONSULTA E AJUSTAR PRODUTOS
     let queryType = 'geral'
+
     if (/estoque.*baixo|baixo.*estoque/i.test(queryLower)) {
       queryType = 'estoque_baixo'
-      relevantProducts = products.filter((p: Product) => (p.stock_quantity || 0) <= (p.min_stock || 0)).slice(0, 15)
-    } else if (/orçamento|orcamento|cotação|cotacao|proposta/i.test(queryLower)) {
-      queryType = 'orçamento'
+      // Buscar produtos com estoque baixo
+      const { data: lowStock } = await supabaseAdmin
+        .from('products')
+        .select('id, code, name, description, category, brand, unit, stock_quantity, min_stock, price, cost, supplier, location, status')
+        .eq('user_id', userId)
+        .or('status.eq.active,status.eq.ativo,status.is.null')
+        .lte('stock_quantity', 10)
+        .limit(30)
+
+      relevantProducts = lowStock || []
+    } else if (/orçamento|orcamento|cotação|cotacao|proposta|preciso|quero comprar/i.test(queryLower)) {
+      queryType = 'orcamento'
+      // Manter produtos encontrados na busca
     } else if (/categoria|tipo/i.test(queryLower)) {
       queryType = 'categoria'
     } else if (/marca|fabricante/i.test(queryLower)) {
       queryType = 'marca'
     }
 
-    console.log('📋 Tipo de consulta:', queryType)
+    console.log('📋 Tipo de consulta:', queryType, '| Produtos relevantes:', relevantProducts.length)
 
-    // 8. PREPARAR CONTEXTO PARA A IA
+    // 10. PREPARAR CONTEXTO OTIMIZADO PARA A IA (reduzido!)
     const contextData = {
       empresa: userProfile?.company || 'Não informada',
       totalProdutos: stats.total,
       estoqueBaixo: stats.lowStock,
-      categorias: stats.categories.slice(0, 10),
-      marcas: stats.brands.slice(0, 10),
       tipoConsulta: queryType,
-      produtosRelevantes: relevantProducts.map((p: Product) => ({
+      // Limitar a 15 produtos para não estourar tokens
+      produtosRelevantes: relevantProducts.slice(0, 15).map((p: Product) => ({
         nome: p.name,
         codigo: p.code || 'S/C',
         categoria: p.category || 'N/A',
         marca: p.brand || 'N/A',
         estoque: p.stock_quantity || 0,
-        estoqueMinimo: p.min_stock || 0,
-        preco: p.price || 0,
-        custo: p.cost || 0,
-        unidade: p.unit || 'UN',
-        local: p.location || 'N/A'
+        custo: p.cost || 0,  // FOCO NO CUSTO!
+        unidade: p.unit || 'UN'
       }))
     }
 
-    // 9. CRIAR PROMPT ESPECIALIZADO
-    const systemPrompt = `Você é o AutoPanel IA, assistente especializado em estoque elétrico.
+    // 11. CRIAR PROMPT ESPECIALIZADO EM ORÇAMENTOS
+    const systemPrompt = `Você é o AutoPanel IA, assistente especializado em CRIAR ORÇAMENTOS de materiais elétricos.
 
-DADOS DA CONSULTA:
+🎯 SUA MISSÃO: Ajudar vendedores a montar orçamentos RAPIDAMENTE.
+
+📊 CONTEXTO DO ESTOQUE:
 - Empresa: ${contextData.empresa}
-- Total de produtos: ${contextData.totalProdutos}
+- Total de produtos no sistema: ${contextData.totalProdutos}
 - Produtos com estoque baixo: ${contextData.estoqueBaixo}
 - Tipo de consulta: ${contextData.tipoConsulta}
 
-PRODUTOS RELEVANTES ENCONTRADOS:
-${contextData.produtosRelevantes.map((p, i) => 
+📦 PRODUTOS ENCONTRADOS PARA ESTA CONSULTA (${contextData.produtosRelevantes.length}):
+${contextData.produtosRelevantes.map((p, i) =>
 `${i+1}. ${p.nome} (${p.codigo})
-   • Categoria: ${p.categoria} | Marca: ${p.marca}
-   • Estoque: ${p.estoque} ${p.unidade} ${p.estoque <= p.estoqueMinimo ? '⚠️ BAIXO' : '✅'}
-   • Custo: R$ ${p.custo.toFixed(2)} | Preço: R$ ${p.preco.toFixed(2)}
-   • Local: ${p.local}`
-).join('\n\n')}
+   Categoria: ${p.categoria} | Marca: ${p.marca}
+   Estoque: ${p.estoque} ${p.unidade} | CUSTO: R$ ${p.custo.toFixed(2)}`
+).join('\n')}
 
-INSTRUÇÕES:
-- Responda APENAS sobre produtos elétricos e materiais elétricos
-- Use os produtos listados acima como base para suas respostas
-- Para orçamentos, extraia dados reais do cliente se mencionados
-- Destaque produtos com estoque baixo usando ⚠️
-- Use valores em formato brasileiro (R$)
-- Seja direto e técnico
-- Máximo 500 caracteres para consultas simples
-- Para orçamentos pode usar até 800 caracteres
+⚠️ REGRAS OBRIGATÓRIAS:
 
-CONSULTA DO USUÁRIO: "${message}"`
+1. PARA ORÇAMENTOS:
+   ${queryType === 'orcamento' ? `
+   a) Se o usuário NÃO informou nome do cliente, PERGUNTE:
+      - "Para montar o orçamento, preciso de alguns dados:"
+      - "📝 Qual o nome do cliente?"
+      - "🏢 Nome da empresa? (opcional)"
+      - "📞 Telefone ou email para contato?"
 
-    // 10. CHAMAR GEMINI COM TIMEOUT
+   b) Se o usuário NÃO especificou produtos/quantidades, PERGUNTE:
+      - "Quais produtos/materiais precisa?"
+      - "Quantidades de cada item?"
+      - "Alguma especificação técnica importante?"
+
+   c) SEMPRE retorne valores em CUSTO (não preço de venda):
+      - "Custo unitário: R$ X.XX"
+      - "Custo total: R$ X.XX"
+      - NUNCA calcule preço de venda
+
+   d) Mostre disponibilidade em estoque:
+      - "✅ Em estoque: X unidades"
+      - "⚠️ Estoque baixo: X unidades"
+      - "❌ Sem estoque no momento"
+
+   e) Estruture a resposta assim:
+      📋 ORÇAMENTO PARA: [Cliente] - [Empresa]
+      📞 Contato: [telefone/email]
+
+      📦 ITENS:
+      1. [Produto] - Cód: [XXX]
+         Qtd: [X] [un] x R$ [custo] = R$ [total]
+         Estoque: [X] [un]
+
+      💰 CUSTO TOTAL: R$ [XX.XX]
+
+      ⚠️ Observação: Preço de venda a definir pelo vendedor.
+
+   f) CRITÉRIO PARA ORÇAMENTO COMPLETO:
+      ✅ Tem nome do cliente
+      ✅ Tem pelo menos 1 produto com quantidade
+      ✅ Tem valor total calculado
+
+   g) SEMPRE que montar um orçamento COMPLETO, PERGUNTE:
+      "\n\n✅ Está correto? Posso salvar este orçamento na aba Orçamentos?"
+
+   h) Se o usuário responder: "sim", "pode", "confirmo", "salva", "perfeito", "ok":
+      Responda EXATAMENTE: "SALVAR_ORCAMENTO:SIM"
+      E mais nada!
+   ` : ''}
+
+2. PARA CONSULTAS GERAIS:
+   - Liste produtos disponíveis
+   - Mostre código, estoque e CUSTO
+   - Seja objetivo (máx 500 caracteres)
+
+3. NÃO INVENTE DADOS:
+   - Use APENAS produtos da lista acima
+   - Se não encontrou o produto, diga isso
+   - Se estoque for 0, informe que está sem estoque
+
+4. FORMATAÇÃO:
+   - Use R$ para valores
+   - Seja direto e profissional
+   - Use emojis apenas: ✅ ⚠️ ❌
+
+CONSULTA DO VENDEDOR: "${message}"`
+
+    // 12. CHAMAR GEMINI COM TIMEOUT
     try {
       console.log('🤖 Chamando Gemini...')
-      
+
       const genAI = new GoogleGenerativeAI(geminiKey)
-      const model = genAI.getGenerativeModel({ 
-        model: 'gemini-1.5-flash',
+      const model = genAI.getGenerativeModel({
+        model: 'gemini-2.0-flash-exp', // Modelo mais recente e poderoso
         generationConfig: {
-          temperature: 0.3,
+          temperature: 0.2, // Mais determinístico para orçamentos
           topP: 0.8,
-          maxOutputTokens: queryType === 'orçamento' ? 800 : 500
+          maxOutputTokens: queryType === 'orcamento' ? 1500 : 800 // Mais espaço para orçamentos detalhados
         }
       })
 
@@ -250,10 +335,177 @@ CONSULTA DO USUÁRIO: "${message}"`
       const response = result.response.text()
       console.log('✅ Resposta recebida do Gemini:', { length: response.length })
 
-      // 11. GERENCIAR CONVERSA ATIVA
+      // 13. GERENCIAR CONVERSA ATIVA (precisa estar antes do salvamento)
       const conversationId = await manageActiveConversation(userId, message)
 
-      // 12. SALVAR MENSAGENS (não crítico)
+      // 14. DETECTAR SE DEVE SALVAR ORÇAMENTO
+      let quoteSaved = false
+      let quoteNumber = null
+
+      // Detectar comando direto para salvar
+      const commandToSave = /\b(salva|salvar|salve|grave)\b.*\b(orçamento|orcamento)\b/i.test(message.toLowerCase())
+
+      // Detectar confirmação do usuário após pergunta da IA
+      const userConfirmed = /\b(sim|pode|confirmo|perfeito|ok|yes|correto|certo)\b/i.test(message.toLowerCase())
+
+      if (response.includes('SALVAR_ORCAMENTO:SIM') || commandToSave || (userConfirmed && conversationId)) {
+        console.log('💾 Detectado comando para salvar orçamento...')
+
+        try {
+          // Extrair dados da conversa (mensagens anteriores)
+          const { data: conversationMessages } = await supabaseAdmin
+            .from('chat_messages')
+            .select('content, role')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false })
+            .limit(10)
+
+          // Buscar dados do orçamento nas mensagens
+          let customerName = ''
+          let customerCompany = ''
+          let customerContact = ''
+          let items: any[] = []
+          let totalCost = 0
+
+          // Buscar dados do cliente nas mensagens do usuário
+          for (const msg of conversationMessages || []) {
+            if (msg.role === 'user' && !customerName) {
+              // Tentar extrair nome, empresa e telefone da mensagem do usuário
+              const userMsg = msg.content.toLowerCase()
+
+              // Buscar padrões de telefone
+              const phoneMatch = msg.content.match(/(\(?\d{2}\)?\s?\d{4,5}[-\s]?\d{4})/);
+              if (phoneMatch) customerContact = phoneMatch[1]
+
+              // Buscar nome (primeira palavra que não seja número ou comando)
+              const words = msg.content.split(/\s+/).filter(w => w.length > 2 && !/^\d+$/.test(w))
+              if (words.length > 0 && !customerName) {
+                // Pegar primeiras 2-3 palavras como possível nome
+                const possibleName = words.slice(0, 2).join(' ')
+                if (!/\b(preciso|quero|favor|gostaria|orçamento)\b/i.test(possibleName)) {
+                  customerName = possibleName
+                }
+              }
+            }
+
+            // Buscar dados formatados da IA
+            if (msg.role === 'assistant') {
+              // Formato estruturado
+              if (msg.content.includes('ORÇAMENTO PARA:') || msg.content.includes('📋')) {
+                const nameMatch = msg.content.match(/(?:ORÇAMENTO PARA:|📋)[:\s]*([^\-\n]+?)(?:\s*-\s*|\n)/i)
+                const companyMatch = msg.content.match(/(?:ORÇAMENTO PARA:|📋)[^\-]+-\s*([^\n]+)/)
+                const contactMatch = msg.content.match(/(?:Contato:|📞)[:\s]*([^\n]+)/)
+
+                if (nameMatch) customerName = nameMatch[1].trim()
+                if (companyMatch) customerCompany = companyMatch[1].trim()
+                if (contactMatch) customerContact = contactMatch[1].trim()
+              }
+
+              // Buscar TOTAL
+              const totalMatch = msg.content.match(/(?:TOTAL|CUSTO TOTAL|💰)[:\s]*R\$\s*([\d.,]+)/i)
+              if (totalMatch) {
+                totalCost = parseFloat(totalMatch[1].replace(/\./g, '').replace(',', '.'))
+              }
+
+              // Extrair itens (múltiplos formatos)
+              // Formato 1: "Produto: 5 x R$ 10.00 = R$ 50.00"
+              const itemsFormat1 = msg.content.match(/([^:\n]+?):\s*(\d+)\s*x\s*R\$\s*([\d.,]+)\s*=\s*R\$\s*([\d.,]+)/gi)
+              if (itemsFormat1 && items.length === 0) {
+                items = itemsFormat1.map(item => {
+                  const match = item.match(/([^:\n]+?):\s*(\d+)\s*x\s*R\$\s*([\d.,]+)\s*=\s*R\$\s*([\d.,]+)/i)
+                  if (match) {
+                    return {
+                      product_name: match[1].trim(),
+                      code: 'AUTO',
+                      quantity: parseInt(match[2]),
+                      unit_price: parseFloat(match[3].replace(',', '.'))
+                    }
+                  }
+                  return null
+                }).filter(Boolean)
+              }
+
+              // Formato 2: "1. Produto - Cód: XXX Qtd: 5 un x R$ 10.00"
+              const itemsFormat2 = msg.content.match(/\d+\.\s+(.+?)\s*(?:-\s*Cód:\s*(\S+))?\s*[\s\S]*?(?:Qtd:|Quantidade:)?\s*(\d+)[^\d]*x\s*R\$\s*([\d.,]+)/gi)
+              if (itemsFormat2 && items.length === 0) {
+                items = itemsFormat2.map(item => {
+                  const match = item.match(/\d+\.\s+(.+?)\s*(?:-\s*Cód:\s*(\S+))?\s*[\s\S]*?(?:Qtd:|Quantidade:)?\s*(\d+)[^\d]*x\s*R\$\s*([\d.,]+)/i)
+                  if (match) {
+                    return {
+                      product_name: match[1].trim(),
+                      code: match[2] || 'AUTO',
+                      quantity: parseInt(match[3]),
+                      unit_price: parseFloat(match[4].replace(',', '.'))
+                    }
+                  }
+                  return null
+                }).filter(Boolean)
+              }
+            }
+          }
+
+          console.log('📝 Dados extraídos:', {
+            customerName,
+            customerCompany,
+            customerContact,
+            totalCost,
+            itemsCount: items.length
+          })
+
+          // Se encontrou dados, salvar orçamento
+          if (customerName && items.length > 0) {
+            // Gerar número do orçamento
+            const now = new Date()
+            quoteNumber = `ORC-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`
+
+            console.log('💾 Salvando orçamento:', { quoteNumber, customerName, total: totalCost, items: items.length })
+
+            // Salvar orçamento
+            const { data: quoteData, error: quoteError } = await supabaseAdmin
+              .from('quotes')
+              .insert({
+                user_id: userId,
+                quote_number: quoteNumber,
+                customer_name: customerName,
+                customer_company: customerCompany || null,
+                customer_phone: customerContact || null,
+                customer_email: customerContact?.includes('@') ? customerContact : null,
+                total_amount: totalCost,
+                value: totalCost,
+                status: 'draft',
+                created_from_chat: true,
+                chat_conversation_id: conversationId || null,
+                notes: 'Orçamento criado automaticamente pelo Chat IA'
+              })
+              .select()
+              .single()
+
+            if (quoteError) throw quoteError
+
+            // Salvar itens do orçamento
+            if (quoteData && items.length > 0) {
+              const quoteItems = items.map(item => ({
+                quote_id: quoteData.id,
+                product_name: item.product_name,
+                quantity: item.quantity,
+                unit_price: item.unit_price,
+                total_price: item.quantity * item.unit_price
+              }))
+
+              await supabaseAdmin
+                .from('quote_items')
+                .insert(quoteItems)
+            }
+
+            quoteSaved = true
+            console.log('✅ Orçamento salvo:', quoteNumber)
+          }
+        } catch (saveError) {
+          console.error('❌ Erro ao salvar orçamento:', saveError)
+        }
+      }
+
+      // 15. SALVAR MENSAGENS (não crítico)
       try {
         await supabaseAdmin.from('chat_messages').insert([
           {
@@ -273,9 +525,21 @@ CONSULTA DO USUÁRIO: "${message}"`
         console.warn('⚠️ Erro ao salvar conversa (não crítico):', saveError)
       }
 
-      // 13. RESPOSTA FINAL
+      // 16. PREPARAR RESPOSTA FINAL
+      let finalResponse = response
+
+      // Se orçamento foi salvo, substituir a confirmação por mensagem amigável
+      if (quoteSaved && quoteNumber) {
+        finalResponse = finalResponse.replace('SALVAR_ORCAMENTO:SIM',
+          `✅ **Orçamento ${quoteNumber} salvo com sucesso!**\n\n` +
+          `Você pode visualizar e editar este orçamento na aba "Orçamentos" do dashboard.\n\n` +
+          `O orçamento está salvo como rascunho e pode ser enviado ao cliente quando estiver pronto.`
+        )
+      }
+
+      // 17. RESPOSTA FINAL
       return NextResponse.json({
-        response,
+        response: finalResponse,
         context: {
           total_products: stats.total,
           low_stock_items: stats.lowStock,
@@ -284,7 +548,8 @@ CONSULTA DO USUÁRIO: "${message}"`
           has_products: stats.total > 0,
           user_company: contextData.empresa,
           conversation_id: conversationId,
-          conversation_active: true
+          conversation_active: true,
+          quote_created: quoteSaved ? quoteNumber : null
         }
       })
 
