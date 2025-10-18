@@ -1,9 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone', // Necessário para Docker/Cloud Run
-  experimental: {
-    outputFileTracingRoot: require('path').join(__dirname, './'),
-  },
+  outputFileTracingRoot: require('path').join(__dirname, './'),
   // Se usar imagens externas, configure os domínios
   images: {
     remotePatterns: [

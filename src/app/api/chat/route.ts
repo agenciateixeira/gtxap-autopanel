@@ -378,7 +378,7 @@ CONSULTA DO VENDEDOR: "${message}"`
               if (phoneMatch) customerContact = phoneMatch[1]
 
               // Buscar nome (primeira palavra que não seja número ou comando)
-              const words = msg.content.split(/\s+/).filter(w => w.length > 2 && !/^\d+$/.test(w))
+              const words = msg.content.split(/\s+/).filter((w: string) => w.length > 2 && !/^\d+$/.test(w))
               if (words.length > 0 && !customerName) {
                 // Pegar primeiras 2-3 palavras como possível nome
                 const possibleName = words.slice(0, 2).join(' ')
@@ -411,7 +411,7 @@ CONSULTA DO VENDEDOR: "${message}"`
               // Formato 1: "Produto: 5 x R$ 10.00 = R$ 50.00"
               const itemsFormat1 = msg.content.match(/([^:\n]+?):\s*(\d+)\s*x\s*R\$\s*([\d.,]+)\s*=\s*R\$\s*([\d.,]+)/gi)
               if (itemsFormat1 && items.length === 0) {
-                items = itemsFormat1.map(item => {
+                items = itemsFormat1.map((item: string) => {
                   const match = item.match(/([^:\n]+?):\s*(\d+)\s*x\s*R\$\s*([\d.,]+)\s*=\s*R\$\s*([\d.,]+)/i)
                   if (match) {
                     return {
@@ -428,7 +428,7 @@ CONSULTA DO VENDEDOR: "${message}"`
               // Formato 2: "1. Produto - Cód: XXX Qtd: 5 un x R$ 10.00"
               const itemsFormat2 = msg.content.match(/\d+\.\s+(.+?)\s*(?:-\s*Cód:\s*(\S+))?\s*[\s\S]*?(?:Qtd:|Quantidade:)?\s*(\d+)[^\d]*x\s*R\$\s*([\d.,]+)/gi)
               if (itemsFormat2 && items.length === 0) {
-                items = itemsFormat2.map(item => {
+                items = itemsFormat2.map((item: string) => {
                   const match = item.match(/\d+\.\s+(.+?)\s*(?:-\s*Cód:\s*(\S+))?\s*[\s\S]*?(?:Qtd:|Quantidade:)?\s*(\d+)[^\d]*x\s*R\$\s*([\d.,]+)/i)
                   if (match) {
                     return {
