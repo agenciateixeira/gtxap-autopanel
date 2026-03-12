@@ -42,3 +42,9 @@ app.yaml
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# database backups
+*.backup
+*.sql
+backup-*.sql
+REATIVACAO.sql
